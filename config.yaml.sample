@@ -1,0 +1,8 @@
+# MQTT configuration
+mqtt-uri: "tcp://localhost:1883"
+mqtt-username: "foo"
+mqtt-password: "bar"
+
+# InfluxDB configuration
+influx-uri: "http://localhost:8086"
+
