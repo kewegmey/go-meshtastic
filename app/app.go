@@ -27,13 +27,14 @@ var influxChan = make(chan sInfluxPoint)
 var userCache = make(map[uint32]pb.User)
 
 type allData struct {
-	Mqtt   []byte
-	Se     pb.ServiceEnvelope
-	Data   pb.Data
-	Tenv   pb.Telemetry_EnvironmentMetrics //Unused??
-	Env    *pb.EnvironmentMetrics
-	Influx sInfluxPoint
-	User   pb.User
+	Mqtt          []byte
+	Se            pb.ServiceEnvelope
+	Data          pb.Data
+	Tenv          pb.Telemetry_EnvironmentMetrics //Unused??
+	Env           *pb.EnvironmentMetrics
+	Influx        sInfluxPoint
+	User          pb.User
+	DeviceMetrics *pb.DeviceMetrics
 }
 
 type sInfluxPoint struct {
@@ -152,7 +153,13 @@ func telemetryHandler(thisAllData *allData) {
 	if err != nil {
 		fmt.Printf("Failed to decode protobuf Telemetry message: %v\n", err)
 	}
-	thisAllData.Env = telemetry.GetEnvironmentMetrics()
+	switch telemetry.Variant.(type) {
+	case *pb.Telemetry_EnvironmentMetrics:
+		thisAllData.Env = telemetry.GetEnvironmentMetrics()
+	case *pb.Telemetry_DeviceMetrics:
+		fmt.Printf("DeviceMetrics: %+v\n", telemetry.GetDeviceMetrics())
+		thisAllData.DeviceMetrics = telemetry.GetDeviceMetrics()
+	}
 	//fmt.Printf("Decoded telemetry: %+v\n", telemetry)
 }
 
@@ -203,6 +210,17 @@ func addUserMetrics(thisAllData *allData) {
 	user := thisAllData.User
 	tags["LongName"] = user.LongName
 	tags["ShortName"] = user.ShortName
+}
+
+func addDeviceMetrics(thisAllData *allData) {
+	metrics := thisAllData.DeviceMetrics
+	fields := thisAllData.Influx.Fields
+
+	fields["BatteryLevel"] = *metrics.BatteryLevel
+	fields["Voltage"] = *metrics.Voltage
+	fields["ChannelUtilization"] = *metrics.ChannelUtilization
+	fields["AirUtilTx"] = *metrics.AirUtilTx
+	fields["UptimeSeconds"] = *metrics.UptimeSeconds
 }
 
 func processServiceEnvelopePacket(serviceEnvelope pb.ServiceEnvelope) sInfluxPoint {
@@ -326,9 +344,13 @@ func processMessages(dataChan chan allData) {
 			switch Data.Portnum {
 			case pb.PortNum_TELEMETRY_APP:
 				//fmt.Printf("Received telemetry from chan: %+v\n", Data)
-				// Add Environment data to the Influx point.
-				// TODO: This is unsafe because the telemetry might not be environment metrics.
-				addEnvironmentMetrics(&thisAllData)
+				if thisAllData.Env != nil {
+					addEnvironmentMetrics(&thisAllData)
+				}
+
+				if thisAllData.DeviceMetrics != nil {
+					addDeviceMetrics(&thisAllData)
+				}
 
 			case pb.PortNum_POSITION_APP:
 				//fmt.Printf("Received position: %+v\n", data)
