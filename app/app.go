@@ -35,6 +35,7 @@ type allData struct {
 	Influx        sInfluxPoint
 	User          pb.User
 	DeviceMetrics *pb.DeviceMetrics
+	TextMessage   string
 }
 
 type sInfluxPoint struct {
@@ -63,22 +64,36 @@ var messageHandler MQTT.MessageHandler = func(client MQTT.Client, msg MQTT.Messa
 	// Fill in the user data from cache.
 	thisAllData.User = userCache[serviceEnvelope.Packet.From]
 
+	// Load keys from config.yaml
+	keys := viper.GetStringSlice("mesh-keys")
+	if len(keys) == 0 {
+		log.Fatal("No keys found in config.yaml")
+	}
+
 	// Decode the encrypted data and save it to the allData struct.
 	nonce := generateNonce(serviceEnvelope.Packet.Id, serviceEnvelope.Packet.From)
-	key, err := generateKey("1PG7OiApB1nwvP+rz05pAQ==") // This looks like a secret but it's the well know default key.
-	if err != nil {
-		log.Fatal(err)
+	var decodedMessage pb.Data
+	var err error
+
+	for _, keyStr := range keys {
+		key, err := generateKey(keyStr)
+		if err != nil {
+			log.Printf("Failed to generate key: %v", err)
+			continue
+		}
+		decodedMessage, err = decode(key, serviceEnvelope.Packet.GetEncrypted(), nonce)
+		if err == nil {
+			thisAllData.Data = decodedMessage
+			break
+		}
 	}
-	//TODO Only decode if the ServiceEnvelope.packet tells us it's encrypted.
-	decodedMessage, err := decode(key, serviceEnvelope.Packet.GetEncrypted(), nonce)
+
 	if err != nil {
-		log.Print(err)
+		log.Print("Failed to decode with all keys: ", err)
 		// Without data there's nothing more we can do.
 		// Send what we have along.
 		dataChan <- thisAllData
 		return
-	} else {
-		thisAllData.Data = decodedMessage
 	}
 
 	// Handle the data layer.
@@ -92,6 +107,8 @@ var messageHandler MQTT.MessageHandler = func(client MQTT.Client, msg MQTT.Messa
 	case pb.PortNum_NODEINFO_APP:
 		// We want to observe the nodeinfos to add metadata for human readable names (From the user payload in nodeinfo)
 		nodeinfoHandler(&thisAllData)
+	case pb.PortNum_TEXT_MESSAGE_APP:
+		textHandler(&thisAllData)
 	}
 
 	// We should now have a full thisAllData.
@@ -140,9 +157,9 @@ func decode(encryptionKey []byte, encryptedData []byte, nonce []byte) (pb.Data, 
 	stream.XORKeyStream(plaintext, ciphertext)
 
 	err = proto.Unmarshal(plaintext, &message)
-	if err != nil {
-		fmt.Printf("Failed to decode protobuf Data message.  This could be because we don't know the key.: %v\n", err)
-	}
+	// if err != nil {
+	// 	fmt.Printf("Failed to decode protobuf Data message.  This could be because we don't know the key.: %v\n", err)
+	// }
 	return message, err
 }
 
@@ -203,6 +220,11 @@ func addDataMetrics(thisAllData *allData) {
 	tags["Emoji"] = fmt.Sprintf("%d", data.Emoji)
 	tags["Bitfield"] = fmt.Sprintf("%x", data.Bitfield)
 
+}
+
+func addTextMessage(thisAllData *allData) {
+	fields := thisAllData.Influx.Fields
+	fields["TextMessage"] = thisAllData.TextMessage
 }
 
 func addUserMetrics(thisAllData *allData) {
@@ -288,6 +310,12 @@ func nodeinfoHandler(thisAllData *allData) {
 
 }
 
+func textHandler(thisAllData *allData) {
+	textMessage := string(thisAllData.Data.Payload)
+	fmt.Printf("TextMessage: %s\n", textMessage)
+	thisAllData.TextMessage = textMessage
+}
+
 func influxPublisher(influxChan chan sInfluxPoint) {
 	client, err := influxdb.NewHTTPClient(influxdb.HTTPConfig{
 		Addr: viper.GetString("influx-uri"),
@@ -355,6 +383,8 @@ func processMessages(dataChan chan allData) {
 			case pb.PortNum_POSITION_APP:
 				//fmt.Printf("Received position: %+v\n", data)
 				fmt.Print("Received position\n")
+			case pb.PortNum_TEXT_MESSAGE_APP:
+				addTextMessage(&thisAllData)
 			}
 
 			// Pretty print the influx point
