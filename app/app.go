@@ -215,10 +215,10 @@ func addDataMetrics(thisAllData *allData) {
 	tags["WantResponse"] = fmt.Sprintf("%t", data.WantResponse)
 	tags["Dest"] = fmt.Sprintf("%x", data.Dest)
 	tags["Source"] = fmt.Sprintf("%x", data.Source)
-	tags["RequestId"] = fmt.Sprintf("%d", data.RequestId)
-	tags["ReplyId"] = fmt.Sprintf("%d", data.ReplyId)
+	fields["RequestId"] = fmt.Sprintf("%d", data.RequestId)
+	fields["ReplyId"] = fmt.Sprintf("%d", data.ReplyId)
 	tags["Emoji"] = fmt.Sprintf("%d", data.Emoji)
-	tags["Bitfield"] = fmt.Sprintf("%x", data.Bitfield)
+	fields["Bitfield"] = fmt.Sprintf("%x", data.Bitfield)
 
 }
 
@@ -258,7 +258,6 @@ func processServiceEnvelopePacket(serviceEnvelope pb.ServiceEnvelope) sInfluxPoi
 		"From":      fmt.Sprintf("%x", serviceEnvelope.Packet.From),
 		"To":        fmt.Sprintf("%x", serviceEnvelope.Packet.To),
 		"Channel":   fmt.Sprintf("%d", serviceEnvelope.Packet.Channel),
-		"Id":        fmt.Sprintf("%x", serviceEnvelope.Packet.Id),
 		"HopLimit":  fmt.Sprintf("%d", serviceEnvelope.Packet.HopLimit),
 		"WantAck":   fmt.Sprintf("%t", serviceEnvelope.Packet.WantAck),
 		// Skipping priority
@@ -273,6 +272,7 @@ func processServiceEnvelopePacket(serviceEnvelope pb.ServiceEnvelope) sInfluxPoi
 		"RxRssi":         serviceEnvelope.Packet.RxRssi,
 		"HopStart":       serviceEnvelope.Packet.HopStart,
 		"PayloadVariant": serviceEnvelope.Packet.PayloadVariant,
+		"Id":             serviceEnvelope.Packet.Id,
 	}
 	influxPoint.Name = "MeshtasticMessage"
 
